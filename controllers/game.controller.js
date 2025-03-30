@@ -19,7 +19,7 @@ exports.createGame = async (req, res) => {
     const gameData = game.toJSON(); // Serialize to ensure Maps are objects
     // console.log('Game created:', gameData);
     io.emit('gameCreated', gameData); // Broadcast to all clients, not just gameId room
-    res.json({ gameId, url: `http://localhost:5173/${gameId}` });
+    res.json({ gameId, url: `https://vercel.com/rams-words-projects/mafia-v01-client/${gameId}` });
   } catch (err) {
     console.error('CreateGame error:', err.message);
     res.status(500).json({ msg: 'Server error' });
