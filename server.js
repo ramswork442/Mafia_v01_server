@@ -10,11 +10,20 @@ const Game = require('./models/game.model');
 
 dotenv.config();
 const app = express();
-app.use(cors());
+// Consistent CORS for Express
+app.use(cors({
+  origin: "https://mafia-v01-client.vercel.app",
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true,
+  allowedHeaders: ['Content-Type'],
+}));
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: "https://mafia-v01-client.vercel.app",
+    methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
@@ -23,7 +32,6 @@ module.exports.io = io;
 
 // Database connection
 connectDB();
-
 
 // Middleware
 app.use(express.json());
@@ -54,6 +62,10 @@ const rooms = new Map(); // Map for audio rooms
       { kind: 'audio', mimeType: 'audio/opus', clockRate: 48000, channels: 2 },
     ],
     webRtcTransportOptions: {
+      listenIps: [{ ip: '0.0.0.0' }],
+      enableUdp: true,
+      enableTcp: true,
+      preferUdp: true,
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     },
   });
@@ -61,16 +73,14 @@ const rooms = new Map(); // Map for audio rooms
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
-  console.log('New client connected:', socket.id);
+  // console.log('New client connected:', socket.id);
 
-  // Join a game room
   socket.on('joinRoom', async ({ gameId }) => {
     try {
       socket.join(gameId);
-      console.log(`Client ${socket.id} joined room: ${gameId}`);
+      // console.log(`Client ${socket.id} joined room: ${gameId}`);
       const game = await Game.findOne({ gameId });
       if (game) {
-        // Update player's socketId if they exist
         const player = game.players.find((p) => p.socketId === null || p.socketId === socket.id);
         if (player && !player.socketId) {
           player.socketId = socket.id;
@@ -84,7 +94,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Player joins game
   socket.on('joinGame', async ({ gameId, playerName }) => {
     try {
       if (!gameId || !playerName) throw new Error('Missing gameId or playerName');
@@ -93,20 +102,19 @@ io.on('connection', (socket) => {
       if (game) {
         const player = game.players.find((p) => p.name === playerName);
         if (player && !player.socketId) {
-          player.socketId = socket.id; // Assign socketId
+          player.socketId = socket.id;
           await game.save();
           io.to(gameId).emit('playerJoined', { name: playerName });
           io.to(gameId).emit('gameUpdated', game);
         }
       }
-      console.log(`${playerName} joined game: ${gameId}`);
+      // console.log(`${playerName} joined game: ${gameId}`);
     } catch (err) {
       console.error('Error in joinGame:', err.message);
       socket.emit('error', { message: 'Failed to join game' });
     }
   });
 
-  // Chat message handling
   socket.on('chatMessage', async ({ gameId, name, message }) => {
     try {
       const game = await Game.findOne({ gameId });
@@ -132,12 +140,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Add game phase listener to manage audio
+  // PROBLEM: This listener might not trigger as expected; it’s client-emitted, not server-driven
   socket.on('gameUpdated', async (game) => {
     try {
       const room = rooms.get(game.gameId);
       if (game.currentPhase === 'day' && (!room || !room.active)) {
-        // Start audio for day phase
         if (!rooms.has(game.gameId)) {
           rooms.set(game.gameId, {
             router,
@@ -150,19 +157,17 @@ io.on('connection', (socket) => {
         const updatedRoom = rooms.get(game.gameId);
         updatedRoom.active = true;
         io.to(game.gameId).emit('audioStarted', { gameId: game.gameId });
-        console.log(`Audio started for game ${game.gameId} in day phase`);
+        // console.log(`Audio started for game ${game.gameId} in day phase`);
       } else if (game.currentPhase !== 'day' && room && room.active) {
-        // Stop audio when leaving day phase
         updatedRoom.active = false;
-        io.to(game.gameId).emit('audioStopped'); // New event to stop audio
-        console.log(`Audio stopped for game ${game.gameId}`);
+        io.to(game.gameId).emit('audioStopped');
+        // console.log(`Audio stopped for game ${game.gameId}`);
       }
     } catch (err) {
       console.error('Error in gameUpdated audio handling:', err.message);
     }
   });
 
-  // Audio discussion setup
   socket.on('joinAudio', async ({ gameId }) => {
     try {
       const game = await Game.findOne({ gameId });
@@ -180,7 +185,7 @@ io.on('connection', (socket) => {
           transports: new Map(),
           producers: new Map(),
           consumers: new Map(),
-          active: true, // Set active only if day phase
+          active: true,
         });
         io.to(gameId).emit('audioStarted', { gameId });
       } else {
@@ -198,7 +203,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Create WebRTC transport
   socket.on('createTransport', async ({ gameId, direction }, callback) => {
     try {
       const room = rooms.get(gameId);
@@ -226,7 +230,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Connect transport
   socket.on('connectTransport', async ({ gameId, transportId, dtlsParameters }) => {
     try {
       const room = rooms.get(gameId);
@@ -239,7 +242,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Produce audio
   socket.on('produce', async ({ gameId, transportId, kind, rtpParameters }, callback) => {
     try {
       const room = rooms.get(gameId);
@@ -247,6 +249,7 @@ io.on('connection', (socket) => {
       if (!transport) throw new Error('Transport not found');
       const producer = await transport.produce({ kind, rtpParameters });
       room.producers.set(producer.id, producer);
+      // console.log(`🔊 Producer created: ${producer.id} for game ${gameId}`);
       producer.on('transportclose', () => room.producers.delete(producer.id));
       io.to(`audio-${gameId}`).emit('newProducer', { producerId: producer.id });
       callback({ id: producer.id });
@@ -256,7 +259,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Consume audio
   socket.on('consume', async ({ gameId, transportId, producerId, rtpCapabilities }, callback) => {
     try {
       const room = rooms.get(gameId);
@@ -266,93 +268,63 @@ io.on('connection', (socket) => {
         const consumer = await transport.consume({ producerId, rtpCapabilities });
         room.consumers.set(consumer.id, consumer);
         consumer.on('transportclose', () => room.consumers.delete(consumer.id));
+        // console.log(`🎧 Consumer created: ${consumer.id} consuming ${producerId} for game ${gameId}`);
         callback({
           id: consumer.id,
           producerId,
           kind: consumer.kind,
           rtpParameters: consumer.rtpParameters,
         });
-      }
+      } // PROBLEM: No else clause; if canConsume fails, callback isn’t called
     } catch (err) {
       console.error('Error in consume:', err.message);
       callback({ error: 'Failed to consume audio' });
     }
   });
 
-// Handle disconnection
-socket.on('disconnect', async () => {
-  console.log('Client disconnected:', socket.id);
-  try {
-    const game = await Game.findOne({ 'players.socketId': socket.id });
-    if (game) {
-      if (game.state === 'waiting') {
-        game.players = game.players.filter((p) => p.socketId !== socket.id);
-        await game.save();
-        io.to(game.gameId).emit('playerLeft', { socketId: socket.id });
-        io.to(game.gameId).emit('gameUpdated', game);
-      } else if (game.state === 'inProgress') {
-        const player = game.players.find((p) => p.socketId === socket.id);
-        if (player) {
-          player.socketId = null; // Clear socketId, keep player in game
+  socket.on('disconnect', async () => {
+    // console.log('Client disconnected:', socket.id);
+    try {
+      const game = await Game.findOne({ 'players.socketId': socket.id });
+      if (game) {
+        if (game.state === 'waiting') {
+          game.players = game.players.filter((p) => p.socketId !== socket.id);
           await game.save();
-          io.to(game.gameId).emit('gameUpdated', game);
+          io.to(game.gameId).emit('playerLeft', { socketId: socket.id });
+        } else if (game.state === 'inProgress') {
+          const player = game.players.find((p) => p.socketId === socket.id);
+          if (player) {
+            player.socketId = null;
+            await game.save();
+          }
+        }
+        io.to(game.gameId).emit('gameUpdated', game);
+
+        const room = rooms.get(game.gameId);
+        if (room) {
+          if (game.state === 'finished') {
+            room.transports.forEach((t) => t.close());
+            room.producers.forEach((p) => p.close());
+            room.consumers.forEach((c) => c.close());
+            rooms.delete(game.gameId);
+            io.to(game.gameId).emit('audioStopped');
+            console.log(`Audio cleaned up for finished game ${game.gameId}`);
+          } else if (game.currentPhase !== 'day') {
+            room.active = false;
+            io.to(game.gameId).emit('audioStopped');
+            console.log(`Audio stopped for game ${game.gameId} (not in day phase)`);
+          }
         }
       }
-
-      // Clean up audio resources if game ends or phase context requires it
-      const room = rooms.get(game.gameId);
-      if (room) {
-        if (game.state === 'finished') {
-          // Full cleanup when game ends
-          room.transports.forEach((transport) => {
-            if (!transport.closed) transport.close();
-            room.transports.delete(transport.id);
-          });
-          room.producers.forEach((producer) => {
-            if (!producer.closed) producer.close();
-            room.producers.delete(producer.id);
-          });
-          room.consumers.forEach((consumer) => {
-            if (!consumer.closed) consumer.close();
-            room.consumers.delete(consumer.id);
-          });
-          rooms.delete(game.gameId);
-          io.to(game.gameId).emit('audioStopped');
-          console.log(`Audio cleaned up for finished game ${game.gameId}`);
-        } else if (game.currentPhase !== 'day') {
-          // Partial cleanup or stop audio if not in day phase
-          room.active = false;
-          io.to(game.gameId).emit('audioStopped');
-          console.log(`Audio stopped for game ${game.gameId} (not in day phase)`);
-        }
-      }
+    } catch (err) {
+      console.error('Error in disconnect:', err.message);
     }
-
-    // Clean up any orphaned audio rooms
-    for (const [gameId, room] of rooms) {
-      room.transports.forEach((transport) => {
-        if (transport.closed) room.transports.delete(transport.id);
-      });
-      room.producers.forEach((producer) => {
-        if (producer.closed) room.producers.delete(producer.id);
-      });
-      room.consumers.forEach((consumer) => {
-        if (consumer.closed) room.consumers.delete(consumer.id);
-      });
-      if (!game || game.state === 'finished') {
-        rooms.delete(gameId); // Clean up if no game or finished
-      }
-    }
-  } catch (err) {
-    console.error('Error in disconnect:', err.message);
-  }
-});
+  });
 });
 
 app.get("/", (req, res) => {
   res.json({ message: "Hello, your API is working! 🚀" });
 });
 
-// Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
