@@ -209,7 +209,7 @@ io.on('connection', (socket) => {
       });
 
       room.transports.set(transport.id, transport);
-      // console.log(`🚚 ${direction} transport created: ${transport.id} for ${socket.id}`);
+      console.log(`🚚 ${direction} transport created: ${transport.id} for ${socket.id}`);
 
       callback({
         id: transport.id,
@@ -219,8 +219,17 @@ io.on('connection', (socket) => {
       });
 
       transport.on('dtlsstatechange', (dtlsState) => {
-        // console.log(`Transport ${transport.id} DTLS state: ${dtlsState}`);
+        console.log(`Transport ${transport.id} DTLS state: ${dtlsState}`);
         if (dtlsState === 'closed') room.transports.delete(transport.id);
+      });
+      transport.on('icegatheringstatechange', (state) => {
+        console.log(`Transport ${transport.id} ICE gathering state: ${state}`);
+      });
+      transport.on('icestatechange', (state) => {
+        console.log(`Transport ${transport.id} ICE state: ${state}`);
+        if (state === 'failed') {
+          console.error(`Transport ${transport.id} ICE failed for ${socket.id}`);
+        }
       });
     } catch (err) {
       console.error('CreateTransport error:', err.message);
