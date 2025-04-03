@@ -204,7 +204,7 @@ io.on('connection', (socket) => {
         listenIps: [{ ip: '0.0.0.0', announcedIp: "mafia-v01-server.onrender.com" || null }],
         enableUdp: true,
         enableTcp: true,
-        preferUdp: true,
+        preferUdp: false,
         appData: { socketId: socket.id },
       });
 
