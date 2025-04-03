@@ -10,6 +10,7 @@ const Game = require('./models/game.model');
 
 dotenv.config();
 const app = express();
+app.set('trust proxy', 1); // Trust Render’s proxy
 
 app.use(cors({
   origin: 'https://mafia-v01-client.vercel.app',
@@ -200,7 +201,7 @@ io.on('connection', (socket) => {
       if (!room || !room.active) throw new Error('Room not found or audio not active');
 
       const transport = await router.createWebRtcTransport({
-        listenIps: [{ ip: '0.0.0.0', announcedIp: '127.0.0.1' }],
+        listenIps: [{ ip: '0.0.0.0', announcedIp: "mafia-v01-server.onrender.com" || null }],
         enableUdp: true,
         enableTcp: true,
         preferUdp: true,
